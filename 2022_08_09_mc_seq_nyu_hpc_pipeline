@@ -1,0 +1,162 @@
+# FastQC
+
+#!/bin/bash
+#SBATCH --array=0-23
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=4
+#SBATCH --time=00:60:00
+#SBATCH --mem=1GB
+#SBATCH --job-name=fastqc
+#SBATCH --mail-type=END
+#SBATCH --mail-user=kra277@nyu.edu
+#SBATCH --output=log/01_qc_reports/%A_%a.txt
+
+# Module purge and load
+module purge
+module load fastqc/0.11.9
+
+# create variables for Directories
+datadir=$SCRATCH/aouizerat_lab/ctv_bismark/raw_fastq
+quality_reports=$SCRATCH/aouizerat_lab/ctv_bismark/quality_reports
+fastqc_reports=$quality_reports/fastqc
+
+# If directory does not exist create a new directory
+if [ ! -d "$quality_reports" ]
+then
+    mkdir $quality_reports
+fi
+
+if [ ! -d "$fastqc_reports" ]
+then
+    mkdir $fastqc_reports
+fi
+
+# open the file directory
+cd $datadir
+
+# save the file name in a variable
+FILES=($(ls * .fastq.gz))
+
+# Call fastqc command on the file
+fastqc -t 4 ${FILES[$SLURM_ARRAY_TASK_ID]} -o $fastqc_reports
+
+# MultiQC
+
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --time=00:10:00
+#SBATCH --mem=1GB
+#SBATCH --job-name=multiqc
+#SBATCH --mail-type=END
+#SBATCH --mail-user=kra277@nyu.edu
+#SBATCH --output=log/02_mutiqc_%A.txt
+
+# Module purge and load
+module purge
+module load multiqc/1.9
+
+# create variables for Directories
+quality_reports=$SCRATCH/aouizerat_lab/ctv_bismark/quality_reports
+fastqc_reports=$quality_reports/fastqc
+mutiqc_report=$quality_reports/multiqc
+
+# If directory does not exist create a new directory
+if [ ! -d "$mutiqc_report" ]
+then
+    mkdir $mutiqc_report
+fi
+
+# open the file directory
+cd $fastqc_reports
+
+# Call multiqc command on the reports
+multiqc . -o $mutiqc_report
+
+
+# Bismark
+
+#!/bin/bash
+#SBATCH --array=0-11
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=8
+#SBATCH --time=32:00:00
+#SBATCH --mem=140GB
+#SBATCH --job-name=bismark
+#SBATCH --mail-type=END
+#SBATCH --mail-user=kra277@nyu.edu
+#SBATCH --output=log/03_bismark/%A_%a.txt
+
+genome=/scratch/projects/aouizeratlab/bismark_resc/genome
+datadir=/scratch/kra277/aouizerat_lab/ctv_bismark/raw_fastq
+bam=/scratch/kra277/aouizerat_lab/ctv_bismark/bam_files
+
+# If directory does not exist create a new directory
+if [ ! -d "$bam" ]
+then
+    mkdir $bam
+fi
+
+cd $datadir
+
+FILES=($(ls *R1_001.fastq.gz))
+FILES2=($(ls *R2_001.fastq.gz))
+
+INPUTNAME=($(echo ${FILES[$SLURM_ARRAY_TASK_ID]} | cut -d '_' -f 1,2))
+
+# Uisng Bismark Map the fastq files and save the bam files
+singularity exec --nv \
+--overlay /scratch/projects/aouizeratlab/bismark/my_bismark.ext3:ro \
+/scratch/work/public/singularity/cuda11.2.2-cudnn8-devel-ubuntu20.04.sif \
+/bin/bash -c "source /ext3/env.sh; \
+	    bismark --genome $genome \
+	    -1 ${FILES[$SLURM_ARRAY_TASK_ID]} \
+	    -2 ${FILES2[$SLURM_ARRAY_TASK_ID]} \
+	    --bowtie2 \
+	    --no_dovetail \
+	    --rg_id 'ctv_sample' \
+	    --rg_sample ${INPUTNAME} \
+	    -B ${INPUTNAME} \
+        -o $bam"
+
+
+# Remove Duplicates
+
+#!/bin/bash
+#SBATCH --array=0-11
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=1
+#SBATCH --time=24:00:00
+#SBATCH --mem=12GB
+#SBATCH --job-name=dedup
+#SBATCH --mail-type=END
+#SBATCH --mail-user=kra277@nyu.edu
+#SBATCH --output=log/04_dedup/%A_%a.txt
+
+bam=/scratch/kra277/aouizerat_lab/ctv_bismark/bam_files
+dedup_bam=/scratch/kra277/aouizerat_lab/ctv_bismark/dedup_bam
+
+# If directory does not exist create a new directory
+if [ ! -d "$dedup_bam" ]
+then
+    mkdir $dedup_bam
+fi
+
+cd $bam
+
+FILES=($(ls *pe.bam))
+
+INPUTNAME=($(echo ${FILES[$SLURM_ARRAY_TASK_ID]} | cut -d '_' -f 1,2))
+
+# Build index with bismark
+singularity exec --nv \
+--overlay /scratch/projects/aouizeratlab/bismark/my_bismark.ext3:ro \
+/scratch/work/public/singularity/cuda11.2.2-cudnn8-devel-ubuntu20.04.sif \
+/bin/bash -c "source /ext3/env.sh; deduplicate_bismark \
+	    --bam ${FILES[$SLURM_ARRAY_TASK_ID]} \
+	    --output_dir $dedup_bam \
+-o ${INPUTNAME}"
+
+
