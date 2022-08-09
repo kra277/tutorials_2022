@@ -15,12 +15,13 @@
 module purge
 module load fastqc/0.11.9
 
-# create variables for Directories
-datadir=$SCRATCH/aouizerat_lab/ctv_bismark/raw_fastq
-quality_reports=$SCRATCH/aouizerat_lab/ctv_bismark/quality_reports
+# create variables for directories
+project_dir=$SCRATCH/aouizerat_lab/ctv_bismark
+raw_fastq=$project_dir/raw_fastq
+quality_reports=$project_dir/quality_reports
 fastqc_reports=$quality_reports/fastqc
 
-# If directory does not exist create a new directory
+# If directory does not exist create the directory
 if [ ! -d "$quality_reports" ]
 then
     mkdir $quality_reports
@@ -32,13 +33,14 @@ then
 fi
 
 # open the file directory
-cd $datadir
+cd $raw_fastq
 
 # save the file name in a variable
 FILES=($(ls * .fastq.gz))
 
 # Call fastqc command on the file
 fastqc -t 4 ${FILES[$SLURM_ARRAY_TASK_ID]} -o $fastqc_reports
+
 
 # MultiQC
 
@@ -56,8 +58,9 @@ fastqc -t 4 ${FILES[$SLURM_ARRAY_TASK_ID]} -o $fastqc_reports
 module purge
 module load multiqc/1.9
 
-# create variables for Directories
-quality_reports=$SCRATCH/aouizerat_lab/ctv_bismark/quality_reports
+# create variables for directories
+project_dir=$SCRATCH/aouizerat_lab/ctv_bismark
+quality_reports=$project_dir/quality_reports
 fastqc_reports=$quality_reports/fastqc
 mutiqc_report=$quality_reports/multiqc
 
@@ -88,11 +91,13 @@ multiqc . -o $mutiqc_report
 #SBATCH --mail-user=kra277@nyu.edu
 #SBATCH --output=log/03_bismark/%A_%a.txt
 
+# create variables for directories
+project_dir=$SCRATCH/aouizerat_lab/ctv_bismark
+datadir=$project_dir/raw_fastq
+bam=$project_dir/bam_files
 genome=/scratch/projects/aouizeratlab/bismark_resc/genome
-datadir=/scratch/kra277/aouizerat_lab/ctv_bismark/raw_fastq
-bam=/scratch/kra277/aouizerat_lab/ctv_bismark/bam_files
 
-# If directory does not exist create a new directory
+# If directory does not exist create the directory
 if [ ! -d "$bam" ]
 then
     mkdir $bam
@@ -100,12 +105,15 @@ fi
 
 cd $datadir
 
+# save the file names in variables
 FILES=($(ls *R1_001.fastq.gz))
 FILES2=($(ls *R2_001.fastq.gz))
 
+# extract the needed file name
 INPUTNAME=($(echo ${FILES[$SLURM_ARRAY_TASK_ID]} | cut -d '_' -f 1,2))
 
-# Uisng Bismark Map the fastq files and save the bam files
+# Using singularity call the bismark app installed in the singularity ubuntu image
+# Uisng Bismark, Map the fastq files and save the bam files
 singularity exec --nv \
 --overlay /scratch/projects/aouizeratlab/bismark/my_bismark.ext3:ro \
 /scratch/work/public/singularity/cuda11.2.2-cudnn8-devel-ubuntu20.04.sif \
